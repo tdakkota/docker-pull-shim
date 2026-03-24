@@ -1,0 +1,27 @@
+# docker-pull-shim configuration
+# Place this file at: ~/.config/docker-pull-shim/config.yaml
+#
+# Missing file is silently ignored (no mirror → pass-through only).
+
+# mirror: host or host:port of the pull-through registry mirror.
+# No scheme or path — just the host[:port].
+# Required for pre-pull to activate; omit (or leave empty) for pass-through only.
+mirror: "10.42.0.44:5000"
+
+# tls_verify: whether to verify the mirror's TLS certificate.
+# Set to false for self-signed / plain-HTTP mirrors.
+tls_verify: false
+
+# listen: Unix socket the proxy listens on.
+# Clients must set DOCKER_HOST to this path.
+# Omit to auto-detect:
+#   - rootless Docker → $XDG_RUNTIME_DIR/docker-pull-shim.sock
+#   - write access to /run → /run/docker-pull-shim.sock
+#   - fallback → $XDG_RUNTIME_DIR/docker-pull-shim.sock
+#listen: "unix:///run/docker-pull-shim.sock"
+
+# upstream: Unix socket of the real Docker daemon.
+# Omit to auto-detect:
+#   - rootless Docker → $XDG_RUNTIME_DIR/docker.sock   (preferred)
+#   - system-wide    → /var/run/docker.sock
+#upstream: "unix:///var/run/docker.sock"

@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // prePull copies the image from the configured mirror into the upstream daemon
@@ -17,17 +18,18 @@ import (
 // Errors are logged but never fatal — the original client request is always forwarded.
 func prePull(cfg Config, upstreamSocket string, image string) {
 	if cfg.Mirror == "" {
+		slog.Info("no mirror configured, skipping pre-pull", "image", image)
 		return
 	}
 
 	// Mirror must be a plain host or host:port with no path components or whitespace.
 	if strings.ContainsAny(cfg.Mirror, " \t\n/") {
-		log.Printf("proxy: invalid mirror address %q: must be host or host:port", cfg.Mirror)
+		slog.Warn("invalid mirror address", "mirror", cfg.Mirror, "reason", "must be host or host:port")
 		return
 	}
 	if strings.ContainsRune(cfg.Mirror, ':') {
 		if _, _, err := net.SplitHostPort(cfg.Mirror); err != nil {
-			log.Printf("proxy: invalid mirror address %q: %v", cfg.Mirror, err)
+			slog.Warn("invalid mirror address", "mirror", cfg.Mirror, "err", err)
 			return
 		}
 	}
@@ -35,15 +37,18 @@ func prePull(cfg Config, upstreamSocket string, image string) {
 	normalized := normalizeImage(image)
 	src := fmt.Sprintf("docker://%s/%s", cfg.Mirror, normalized)
 
+	lg := slog.With("image", image)
+	lg.Debug("normalized image name", "src", src)
+
 	tmp, err := os.CreateTemp("", "img-*.tar")
 	if err != nil {
-		log.Printf("proxy: failed to create temp file: %v", err)
+		lg.Error("create temp file", "err", err)
 		return
 	}
 	tmp.Close()
 	defer func() {
 		if err := os.Remove(tmp.Name()); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Printf("proxy: failed to remove temp file %s: %v", tmp.Name(), err)
+			lg.Warn("remove temp file", "path", tmp.Name(), "err", err)
 		}
 	}()
 
@@ -53,19 +58,23 @@ func prePull(cfg Config, upstreamSocket string, image string) {
 	}
 	skopeoArgs = append(skopeoArgs, src, "docker-archive:"+tmp.Name())
 
-	log.Printf("proxy: pulling %s from %s/%s", image, cfg.Mirror, normalized)
+	lg.Info("pulling image", "mirror", cfg.Mirror)
+	startPull := time.Now()
 	skopeo := exec.Command("skopeo", skopeoArgs...)
 	skopeo.Stdout = os.Stderr
 	skopeo.Stderr = os.Stderr
 	if err := skopeo.Run(); err != nil {
-		log.Printf("proxy: skopeo failed for %s: %v", image, err)
+		lg.Error("skopeo failed", "err", err)
 		return
 	}
+	lg.Debug("pulled image", "took", time.Since(startPull))
 
-	log.Printf("proxy: loading %s into daemon", image)
+	lg.Info("loading image")
+	startLoad := time.Now()
 	if err := loadImageAPI(upstreamSocket, tmp.Name()); err != nil {
-		log.Printf("proxy: load failed for %s: %v", image, err)
+		lg.Error("load image failed", "err", err)
 	}
+	lg.Info("loaded image", "took", time.Since(startLoad))
 }
 
 // loadImageAPI sends the tar archive at tarPath to the upstream daemon via

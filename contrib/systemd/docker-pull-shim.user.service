@@ -1,0 +1,30 @@
+# User service — for rootless Docker.
+# Upstream auto-detected as $XDG_RUNTIME_DIR/docker.sock.
+# Listens on $XDG_RUNTIME_DIR/docker-pull-shim.sock.
+#
+# Install:
+#   cp docker-pull-shim.user.service ~/.config/systemd/user/docker-pull-shim.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now docker-pull-shim
+#
+# Clients: export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker-pull-shim.sock
+#   or equivalently: export DOCKER_HOST=unix://%t/docker-pull-shim.sock
+#   (in systemd unit files %t expands to $XDG_RUNTIME_DIR)
+
+[Unit]
+Description=Docker pull-through mirror shim (rootless)
+Documentation=https://github.com/tdakkota/docker-pull-shim
+After=docker.socket
+# Rootless Docker socket — adjust if your distro uses a different unit name.
+Wants=docker.socket
+
+[Service]
+ExecStart=%h/.local/bin/docker-pull-shim
+Restart=on-failure
+RestartSec=2s
+
+# Clean up the socket if the service stops uncleanly.
+ExecStopPost=/bin/rm -f %t/docker-pull-shim.sock
+
+[Install]
+WantedBy=default.target

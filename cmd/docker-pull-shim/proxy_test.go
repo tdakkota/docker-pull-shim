@@ -34,7 +34,7 @@ func TestHandleConn_Passthrough(t *testing.T) {
 	defer clientConn.Close()
 
 	cfg := Config{}
-	go handleConn(serverConn, cfg, tcpDial(upstream.Listener.Addr().String()))
+	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
 	req, _ := http.NewRequest(http.MethodGet, "http://docker/_ping", nil)
 	req.Write(clientConn)
@@ -73,7 +73,7 @@ func TestHandleConn_InterceptPull(t *testing.T) {
 	defer clientConn.Close()
 
 	cfg := Config{} // mirror empty → prePull is a no-op
-	go handleConn(serverConn, cfg, tcpDial(upstream.Listener.Addr().String()))
+	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
 	req, _ := http.NewRequest(http.MethodPost, "http://docker/images/create?fromImage=alpine&tag=latest", nil)
 	req.ContentLength = 0
@@ -112,7 +112,7 @@ func TestHandleConn_SkipFromSrc(t *testing.T) {
 	defer clientConn.Close()
 
 	cfg := Config{Mirror: "mirror.example.com"}
-	go handleConn(serverConn, cfg, tcpDial(upstream.Listener.Addr().String()))
+	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
 	req, _ := http.NewRequest(http.MethodPost, "http://docker/images/create?fromSrc=-&repo=myimg", nil)
 	req.Body = io.NopCloser(strings.NewReader(""))
@@ -155,7 +155,7 @@ func TestHandleConn_VersionedPath(t *testing.T) {
 	defer clientConn.Close()
 
 	cfg := Config{}
-	go handleConn(serverConn, cfg, tcpDial(upstream.Listener.Addr().String()))
+	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
 	req, _ := http.NewRequest(http.MethodPost, "http://docker/v1.44/images/create?fromImage=nginx", nil)
 	req.ContentLength = 0
@@ -192,7 +192,7 @@ func TestHandleConn_KeepAlive(t *testing.T) {
 	defer clientConn.Close()
 
 	cfg := Config{}
-	go handleConn(serverConn, cfg, tcpDial(upstream.Listener.Addr().String()))
+	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
 	br := bufio.NewReader(clientConn)
 	for i := 1; i <= 3; i++ {
@@ -278,7 +278,7 @@ func TestHandleConn_UsesTCPUpstream(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
 
-	go handleConn(serverConn, Config{}, tcpDial(upstream.Listener.Addr().String()))
+	go handleConn(serverConn, Config{}, "", tcpDial(upstream.Listener.Addr().String()))
 
 	req, _ := http.NewRequest(http.MethodGet, "http://docker/version", nil)
 	req.Write(clientConn)

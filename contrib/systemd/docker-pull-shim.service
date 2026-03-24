@@ -1,0 +1,25 @@
+# System-wide service — runs as root, upstream /var/run/docker.sock.
+#
+# Install:
+#   sudo cp docker-pull-shim.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now docker-pull-shim
+#
+# Clients: export DOCKER_HOST=unix:///run/docker-pull-shim.sock
+
+[Unit]
+Description=Docker pull-through mirror shim (system-wide)
+Documentation=https://github.com/tdakkota/docker-pull-shim
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStart=/usr/local/bin/docker-pull-shim
+Restart=on-failure
+RestartSec=2s
+
+# Keep the socket tidy if the service crashes before its signal handler runs.
+ExecStopPost=/bin/rm -f /run/docker-pull-shim.sock
+
+[Install]
+WantedBy=multi-user.target

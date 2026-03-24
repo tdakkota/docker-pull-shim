@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"flag"
+	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -13,22 +15,44 @@ import (
 )
 
 func main() {
+	logLevelFlag := flag.String("log-level", "info", "log level: debug, info, warn, error")
+	flag.Parse()
+
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(*logLevelFlag)); err != nil {
+		fmt.Fprintf(os.Stderr, "proxy: invalid -log-level %q: %v\n", *logLevelFlag, err)
+		os.Exit(1)
+	}
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(handler).With("component", "proxy"))
+
 	cfg, err := loadConfig()
 	if err != nil {
-		log.Printf("proxy: config error: %v", err)
+		slog.Warn("config error", "err", err)
 	}
 
-	listenPath := socketPath(cfg.Listen)
-	upstreamPath := socketPath(cfg.Upstream)
+	upstreamPath, err := chooseUpstream(cfg)
+	if err != nil {
+		slog.Error("cannot determine upstream socket", "err", err)
+		os.Exit(1)
+	}
+
+	listenPath, err := chooseListen(cfg, upstreamPath)
+	if err != nil {
+		slog.Error("cannot determine listen socket", "err", err)
+		os.Exit(1)
+	}
 
 	// Remove stale socket file from a previous run.
 	if err := os.Remove(listenPath); err != nil && !os.IsNotExist(err) {
-		log.Fatalf("proxy: remove existing socket %s: %v", listenPath, err)
+		slog.Error("remove existing socket", "path", listenPath, "err", err)
+		os.Exit(1)
 	}
 
 	ln, err := net.Listen("unix", listenPath)
 	if err != nil {
-		log.Fatalf("proxy: listen %s: %v", listenPath, err)
+		slog.Error("listen failed", "path", listenPath, "err", err)
+		os.Exit(1)
 	}
 	defer ln.Close()
 
@@ -42,7 +66,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	log.Printf("proxy: listening on %s → %s", cfg.Listen, cfg.Upstream)
+	slog.Info("listening", "listen", listenPath, "upstream", upstreamPath)
 
 	dialUpstream := func() (net.Conn, error) {
 		return net.Dial("unix", upstreamPath)
@@ -54,16 +78,16 @@ func main() {
 			// Listener was closed (e.g. on signal).
 			return
 		}
-		go handleConn(conn, cfg, dialUpstream)
+		go handleConn(conn, cfg, upstreamPath, dialUpstream)
 	}
 }
 
-func handleConn(clientConn net.Conn, cfg Config, dialUpstream func() (net.Conn, error)) {
+func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpstream func() (net.Conn, error)) {
 	defer clientConn.Close()
 
 	upConn, err := dialUpstream()
 	if err != nil {
-		log.Printf("proxy: dial upstream: %v", err)
+		slog.Error("dial upstream", "err", err)
 		return
 	}
 	defer upConn.Close()
@@ -76,6 +100,7 @@ func handleConn(clientConn net.Conn, cfg Config, dialUpstream func() (net.Conn, 
 		if err != nil {
 			return
 		}
+		slog.Debug("request", "method", req.Method, "path", req.URL.Path)
 
 		// Intercept POST /images/create — the Docker pull endpoint.
 		// Handle both bare (/images/create) and versioned (/v1.xx/images/create) paths.
@@ -84,19 +109,21 @@ func handleConn(clientConn net.Conn, cfg Config, dialUpstream func() (net.Conn, 
 			fromSrc := req.URL.Query().Get("fromSrc")
 			// fromSrc non-empty means import-from-url/stdin, not a registry pull.
 			if fromImage != "" && fromSrc == "" {
-				prePull(cfg, socketPath(cfg.Upstream), imageWithTag(fromImage, req.URL.Query().Get("tag")))
+				image := imageWithTag(fromImage, req.URL.Query().Get("tag"))
+				slog.Info("intercepted pull", "image", image)
+				prePull(cfg, upstreamSocket, image)
 			}
 		}
 
 		// Forward request to upstream daemon.
 		if err := req.Write(upConn); err != nil {
-			log.Printf("proxy: write request to upstream: %v", err)
+			slog.Info("write to upstream", "err", err)
 			return
 		}
 
 		resp, err := http.ReadResponse(upBuf, req)
 		if err != nil {
-			log.Printf("proxy: read response from upstream: %v", err)
+			slog.Info("read from upstream", "err", err)
 			return
 		}
 
