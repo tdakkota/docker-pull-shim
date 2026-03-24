@@ -54,15 +54,15 @@ func main() {
 		slog.Error("listen failed", "path", listenPath, "err", err)
 		os.Exit(1)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	// Clean up socket on exit.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigs
-		ln.Close()
-		os.Remove(listenPath)
+		_ = ln.Close()
+		_ = os.Remove(listenPath)
 		os.Exit(0)
 	}()
 
@@ -83,14 +83,14 @@ func main() {
 }
 
 func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpstream func() (net.Conn, error)) {
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	upConn, err := dialUpstream()
 	if err != nil {
 		slog.Error("dial upstream", "err", err)
 		return
 	}
-	defer upConn.Close()
+	defer func() { _ = upConn.Close() }()
 
 	clientBuf := bufio.NewReader(clientConn)
 	upBuf := bufio.NewReader(upConn)
@@ -131,20 +131,20 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 		// Flush the initial response and then tunnel raw bytes bidirectionally.
 		if resp.StatusCode == http.StatusSwitchingProtocols {
 			if err := resp.Write(clientConn); err != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				return
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			done := make(chan struct{}, 2)
-			go func() { io.Copy(upConn, clientConn); done <- struct{}{} }()
-			go func() { io.Copy(clientConn, upConn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(upConn, clientConn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(clientConn, upConn); done <- struct{}{} }()
 			<-done
 			<-done // wait for both directions
 			return
 		}
 
 		writeErr := resp.Write(clientConn)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if writeErr != nil {
 			return
 		}

@@ -45,7 +45,10 @@ func prePull(cfg Config, upstreamSocket string, image string) {
 		lg.Error("create temp file", "err", err)
 		return
 	}
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		lg.Error("close temp file", "err", err)
+		return
+	}
 	defer func() {
 		if err := os.Remove(tmp.Name()); err != nil && !errors.Is(err, os.ErrNotExist) {
 			lg.Warn("remove temp file", "path", tmp.Name(), "err", err)
@@ -84,7 +87,7 @@ func loadImageAPI(upstreamSocket, tarPath string) error {
 	if err != nil {
 		return fmt.Errorf("open tar: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -98,7 +101,7 @@ func loadImageAPI(upstreamSocket, tarPath string) error {
 	if err != nil {
 		return fmt.Errorf("POST /images/load: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST /images/load: status %s", resp.Status)

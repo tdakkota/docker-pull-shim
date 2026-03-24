@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // tcpDial returns a dial function that connects to a TCP address (used in tests
@@ -25,25 +27,26 @@ func TestHandleConn_Passthrough(t *testing.T) {
 	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Upstream", "yes")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("pong"))
+		_, _ = w.Write([]byte("pong"))
 	}))
 	upstream.Start()
 	defer upstream.Close()
 
 	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	cfg := Config{}
 	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
-	req, _ := http.NewRequest(http.MethodGet, "http://docker/_ping", nil)
-	req.Write(clientConn)
+	req, err := http.NewRequest(http.MethodGet, "http://docker/_ping", nil)
+	require.NoError(t, err)
+	require.NoError(t, req.Write(clientConn))
 
 	resp, err := http.ReadResponse(bufio.NewReader(clientConn), req)
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
@@ -70,20 +73,21 @@ func TestHandleConn_InterceptPull(t *testing.T) {
 	// handleConn dials a Unix socket, so we test via a TCP-backed fake upstream
 	// by swapping the dial target.
 	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	cfg := Config{} // mirror empty → prePull is a no-op
 	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
-	req, _ := http.NewRequest(http.MethodPost, "http://docker/images/create?fromImage=alpine&tag=latest", nil)
+	req, err := http.NewRequest(http.MethodPost, "http://docker/images/create?fromImage=alpine&tag=latest", nil)
+	require.NoError(t, err)
 	req.ContentLength = 0
-	req.Write(clientConn)
+	require.NoError(t, req.Write(clientConn))
 
 	resp, err := http.ReadResponse(bufio.NewReader(clientConn), req)
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	select {
 	case img := <-intercepted:
@@ -109,21 +113,22 @@ func TestHandleConn_SkipFromSrc(t *testing.T) {
 	defer upstream.Close()
 
 	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	cfg := Config{Mirror: "mirror.example.com"}
 	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
-	req, _ := http.NewRequest(http.MethodPost, "http://docker/images/create?fromSrc=-&repo=myimg", nil)
+	req, err := http.NewRequest(http.MethodPost, "http://docker/images/create?fromSrc=-&repo=myimg", nil)
+	require.NoError(t, err)
 	req.Body = io.NopCloser(strings.NewReader(""))
 	req.ContentLength = 0
-	req.Write(clientConn)
+	require.NoError(t, req.Write(clientConn))
 
 	resp, err := http.ReadResponse(bufio.NewReader(clientConn), req)
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
@@ -152,16 +157,18 @@ func TestHandleConn_VersionedPath(t *testing.T) {
 	defer upstream.Close()
 
 	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	cfg := Config{}
 	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
-	req, _ := http.NewRequest(http.MethodPost, "http://docker/v1.44/images/create?fromImage=nginx", nil)
+	req, err := http.NewRequest(http.MethodPost, "http://docker/v1.44/images/create?fromImage=nginx", nil)
+	require.NoError(t, err)
 	req.ContentLength = 0
-	req.Write(clientConn)
+	require.NoError(t, req.Write(clientConn))
 
-	http.ReadResponse(bufio.NewReader(clientConn), req)
+	_, err = http.ReadResponse(bufio.NewReader(clientConn), req)
+	require.NoError(t, err)
 
 	select {
 	case img := <-intercepted:
@@ -183,27 +190,29 @@ func TestHandleConn_KeepAlive(t *testing.T) {
 		count++
 		n := count
 		mu.Unlock()
-		fmt.Fprintf(w, "req%d", n)
+		_, _ = fmt.Fprintf(w, "req%d", n)
 	}))
 	upstream.Start()
 	defer upstream.Close()
 
 	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	cfg := Config{}
 	go handleConn(serverConn, cfg, "", tcpDial(upstream.Listener.Addr().String()))
 
 	br := bufio.NewReader(clientConn)
 	for i := 1; i <= 3; i++ {
-		req, _ := http.NewRequest(http.MethodGet, "http://docker/_ping", nil)
-		req.Write(clientConn)
+		req, err := http.NewRequest(http.MethodGet, "http://docker/_ping", nil)
+		require.NoError(t, err)
+		require.NoError(t, req.Write(clientConn))
 		resp, err := http.ReadResponse(br, req)
 		if err != nil {
 			t.Fatalf("request %d: read response: %v", i, err)
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
 		if string(body) != fmt.Sprintf("req%d", i) {
 			t.Errorf("request %d: body = %q, want %q", i, body, fmt.Sprintf("req%d", i))
 		}
@@ -276,18 +285,19 @@ func TestHandleConn_UsesTCPUpstream(t *testing.T) {
 	defer upstream.Close()
 
 	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	go handleConn(serverConn, Config{}, "", tcpDial(upstream.Listener.Addr().String()))
 
-	req, _ := http.NewRequest(http.MethodGet, "http://docker/version", nil)
-	req.Write(clientConn)
+	req, err := http.NewRequest(http.MethodGet, "http://docker/version", nil)
+	require.NoError(t, err)
+	require.NoError(t, req.Write(clientConn))
 
 	resp, err := http.ReadResponse(bufio.NewReader(clientConn), req)
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("status = %d, want 204", resp.StatusCode)
 	}

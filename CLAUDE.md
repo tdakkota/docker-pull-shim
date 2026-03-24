@@ -19,7 +19,14 @@ go test ./cmd/docker-pull-shim/ -run TestHandleConn_Passthrough
 
 # Run with debug logging
 ./docker-pull-shim -log-level debug
+
+# Lint (run after every change; 0 issues is the bar)
+golangci-lint run ./...
 ```
+
+## Lint conventions
+
+`golangci-lint` is the enforced linter. Run it after every change and fix all issues before committing.
 
 ## Architecture
 
