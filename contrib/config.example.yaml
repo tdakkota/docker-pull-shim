@@ -2,12 +2,10 @@
 # Place this file at: ~/.config/docker-pull-shim/config.yaml
 #
 # Missing file is silently ignored (no mirror → pass-through only).
-
 # mirror: host or host:port of the pull-through registry mirror.
 # No scheme or path — just the host[:port].
 # Required for pre-pull to activate; omit (or leave empty) for pass-through only.
-mirror: "10.42.0.44:5000"
-
+mirror: "localhost:5000"
 # tls_verify: whether to verify the mirror's TLS certificate.
 # Set to false for self-signed / plain-HTTP mirrors.
 tls_verify: false

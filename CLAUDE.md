@@ -64,7 +64,7 @@ DOCKER_HOST=unix:///run/docker-pull-shim.sock   # (auto-detected at startup)
 
 `~/.config/docker-pull-shim/config.yaml` (see `contrib/config.example.yaml`):
 ```yaml
-mirror: "10.42.0.44:5000"   # host or host:port only — no slashes
+mirror: "localhost:5000"   # host or host:port only — no slashes
 tls_verify: false            # maps to skopeo --src-tls-verify
 # listen and upstream are optional — auto-detected when omitted
 #listen:   "unix:///run/docker-pull-shim.sock"
