@@ -136,8 +136,16 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 			}
 			_ = resp.Body.Close()
 			done := make(chan struct{}, 2)
-			go func() { _, _ = io.Copy(upConn, clientConn); done <- struct{}{} }()
-			go func() { _, _ = io.Copy(clientConn, upConn); done <- struct{}{} }()
+			go func() {
+				_, _ = io.Copy(upConn, clientConn)
+				halfClose(upConn) // client closed its write side; tell the daemon
+				done <- struct{}{}
+			}()
+			go func() {
+				_, _ = io.Copy(clientConn, upConn)
+				halfClose(clientConn) // daemon closed its write side; tell the client
+				done <- struct{}{}
+			}()
 			<-done
 			<-done // wait for both directions
 			return
@@ -152,6 +160,21 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 		if !isKeepAlive(req, resp) {
 			return
 		}
+	}
+}
+
+// closeWriter is implemented by *net.TCPConn and *net.UnixConn.
+type closeWriter interface {
+	CloseWrite() error
+}
+
+// halfClose signals end-of-stream on the write side of c without fully closing
+// it. The peer sees EOF on its read side while in-flight data in the other
+// direction can still drain. Falls back to a no-op for connection types that
+// do not support half-close (e.g. net.Pipe used in tests).
+func halfClose(c net.Conn) {
+	if cw, ok := c.(closeWriter); ok {
+		_ = cw.CloseWrite()
 	}
 }
 
