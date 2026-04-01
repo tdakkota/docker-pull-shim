@@ -137,12 +137,12 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 			_ = resp.Body.Close()
 			done := make(chan struct{}, 2)
 			go func() {
-				_, _ = io.Copy(upConn, clientConn)
+				_, _ = io.Copy(upConn, clientBuf)
 				halfClose(upConn) // client closed its write side; tell the daemon
 				done <- struct{}{}
 			}()
 			go func() {
-				_, _ = io.Copy(clientConn, upConn)
+				_, _ = io.Copy(clientConn, upBuf)
 				halfClose(clientConn) // daemon closed its write side; tell the client
 				done <- struct{}{}
 			}()
