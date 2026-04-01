@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -222,12 +223,12 @@ func TestHandleConn_KeepAlive(t *testing.T) {
 // TestIsKeepAlive covers the keep-alive detection logic.
 func TestIsKeepAlive(t *testing.T) {
 	tests := []struct {
-		name    string
-		reqClose bool
+		name      string
+		reqClose  bool
 		respClose bool
-		proto   string
-		connHdr string
-		want    bool
+		proto     string
+		connHdr   string
+		want      bool
 	}{
 		{"http11 default", false, false, "HTTP/1.1", "", true},
 		{"req.Close", true, false, "HTTP/1.1", "", false},
@@ -318,6 +319,52 @@ func TestImageWithTag(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("imageWithTag(%q, %q) = %q, want %q", tt.fromImage, tt.tag, got, tt.want)
 		}
+	}
+}
+
+// TestHandleConn_Version verifies that GET /version responses have the
+// docker-pull-shim entry injected into the Components array.
+func TestHandleConn_Version(t *testing.T) {
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Version":"27.0.0","Components":[{"Name":"Engine","Version":"27.0.0"}]}`))
+	}))
+	upstream.Start()
+	defer upstream.Close()
+
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+
+	go handleConn(serverConn, Config{}, "", tcpDial(upstream.Listener.Addr().String()))
+
+	for _, path := range []string{"/version", "/v1.47/version"} {
+		req, err := http.NewRequest(http.MethodGet, "http://docker"+path, nil)
+		require.NoError(t, err)
+		require.NoError(t, req.Write(clientConn))
+
+		resp, err := http.ReadResponse(bufio.NewReader(clientConn), req)
+		require.NoError(t, err)
+
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		_ = resp.Body.Close()
+
+		comps, ok := body["Components"].([]any)
+		require.True(t, ok, "Components must be an array")
+
+		var found bool
+		for _, c := range comps {
+			m, _ := c.(map[string]any)
+			if m["Name"] == "docker-pull-shim" {
+				found = true
+				require.NotEmpty(t, m["Version"], "shim Version must be set")
+				// Details.GitCommit must be absent or non-empty (never an empty string).
+				if details, ok := m["Details"].(map[string]any); ok {
+					require.NotEmpty(t, details["GitCommit"], "Details.GitCommit must not be empty when present")
+				}
+			}
+		}
+		require.True(t, found, "docker-pull-shim component not found in %s response", path)
 	}
 }
 

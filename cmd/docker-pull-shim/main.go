@@ -127,6 +127,11 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 			return
 		}
 
+		// Inject shim version into GET /version responses.
+		if req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/version") {
+			resp = injectShimVersion(resp)
+		}
+
 		// 101 Switching Protocols = HTTP hijack (exec, attach, resize).
 		// Flush the initial response and then tunnel raw bytes bidirectionally.
 		if resp.StatusCode == http.StatusSwitchingProtocols {
