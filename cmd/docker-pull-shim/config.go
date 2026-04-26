@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/go-faster/yaml"
 )
 
 // Config holds the proxy configuration.
