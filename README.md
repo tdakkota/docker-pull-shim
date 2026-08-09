@@ -86,6 +86,13 @@ export DOCKER_HOST=unix:///run/docker-pull-shim.sock   # system-wide
 export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker-pull-shim.sock   # rootless
 ```
 
+Prefer a Docker context over `DOCKER_HOST` in a shell rc file — the CLI and `docker compose` read it regardless of how they are launched, so non-interactive sessions (IDE terminals, systemd units, desktop launchers) don't silently fall back to the real daemon socket:
+
+```bash
+docker context create shim --docker host=unix://$XDG_RUNTIME_DIR/docker-pull-shim.sock
+docker context use shim
+```
+
 The proxy logs the chosen sockets at startup — check them if you're unsure which path to use:
 
 ```
