@@ -370,3 +370,49 @@ func TestHandleConn_Version(t *testing.T) {
 
 // Compile-time check that os is imported (used in main.go).
 var _ = os.Stderr
+
+func TestHandleConn_EarlyResponse(t *testing.T) {
+	dir, err := os.MkdirTemp("", "shim")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := dir + "/up.sock"
+
+	ln, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		if _, err := http.ReadRequest(bufio.NewReader(c)); err != nil {
+			return
+		}
+		_, _ = io.WriteString(c, "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found")
+	}()
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() { _ = clientConn.Close() })
+	go handleConn(serverConn, Config{}, "", func() (net.Conn, error) { return net.Dial("unix", sock) })
+
+	req, err := http.NewRequest(http.MethodPut, "http://docker/v1.56/containers/c/archive?path=/tmp", io.LimitReader(zeroReader{}, 64<<20))
+	require.NoError(t, err)
+	go func() { _ = req.Write(clientConn) }()
+
+	resp, err := http.ReadResponse(bufio.NewReader(clientConn), req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, "not found", string(body))
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}

@@ -115,15 +115,19 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 			}
 		}
 
-		// Forward request to upstream daemon.
-		if err := req.Write(upConn); err != nil {
-			slog.Info("write to upstream", "err", err)
-			return
-		}
+		// Write the request concurrently with reading the response: the daemon may
+		// reply early (e.g. an error on PUT /archive) and close without consuming the
+		// body, and that response must still reach the client.
+		writeErrc := make(chan error, 1)
+		go func() { writeErrc <- req.Write(upConn) }()
 
 		resp, err := http.ReadResponse(upBuf, req)
 		if err != nil {
 			slog.Info("read from upstream", "err", err)
+			_ = upConn.Close()
+			if werr := <-writeErrc; werr != nil {
+				slog.Info("write to upstream", "err", werr)
+			}
 			return
 		}
 
@@ -135,6 +139,11 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 		// 101 Switching Protocols = HTTP hijack (exec, attach, resize).
 		// Flush the initial response and then tunnel raw bytes bidirectionally.
 		if resp.StatusCode == http.StatusSwitchingProtocols {
+			if err := <-writeErrc; err != nil {
+				_ = resp.Body.Close()
+				slog.Info("write to upstream", "err", err)
+				return
+			}
 			if err := resp.Write(clientConn); err != nil {
 				_ = resp.Body.Close()
 				return
@@ -158,11 +167,11 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 
 		writeErr := resp.Write(clientConn)
 		_ = resp.Body.Close()
-		if writeErr != nil {
+		if writeErr != nil || !isKeepAlive(req, resp) {
 			return
 		}
-
-		if !isKeepAlive(req, resp) {
+		if err := <-writeErrc; err != nil {
+			slog.Info("write to upstream", "err", err)
 			return
 		}
 	}
