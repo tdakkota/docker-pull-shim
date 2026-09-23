@@ -97,7 +97,10 @@ The proxy logs the chosen sockets at startup — check them if you're unsure whi
 
 ```
 $ docker-pull-shim -log-level debug
+time=… level=INFO msg=starting version=v0.2.1 commit=… modified=false go=go1.26.1
 time=… level=INFO msg="auto-detected system-wide upstream" path=/var/run/docker.sock
 time=… level=INFO msg="using system-wide listen socket" path=/run/docker-pull-shim.sock
 time=… level=INFO msg=listening listen=/run/docker-pull-shim.sock upstream=/var/run/docker.sock
 ```
+
+Run `docker-pull-shim -version` to print the build version.

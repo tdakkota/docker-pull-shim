@@ -5,29 +5,19 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"runtime/debug"
 	"strings"
+
+	"github.com/go-faster/sdk/cliversion"
 )
 
-// shimBuildInfo returns the module version and git commit hash embedded by
-// `go build`. Version is "(devel)" when no module tag is present; GitCommit
-// is empty when VCS info was not stamped (e.g. a vendor build or `go run`).
-func shimBuildInfo() (version, gitCommit string) {
-	version = "(devel)"
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return
+const modulePath = "github.com/tdakkota/docker-pull-shim"
+
+func buildInfo() cliversion.Info {
+	info, _ := cliversion.GetInfo(modulePath)
+	if info.Version == "" {
+		info.Version = "(devel)"
 	}
-	if info.Main.Version != "" {
-		version = info.Main.Version
-	}
-	for _, s := range info.Settings {
-		if s.Key == "vcs.revision" {
-			gitCommit = s.Value
-			break
-		}
-	}
-	return
+	return info
 }
 
 // injectShimVersion reads a JSON GET /version response body, appends a
@@ -55,13 +45,13 @@ func injectShimVersion(resp *http.Response) *http.Response {
 		return resp
 	}
 
-	version, gitCommit := shimBuildInfo()
+	info := buildInfo()
 	shimEntry := map[string]any{
 		"Name":    "docker-pull-shim",
-		"Version": version,
+		"Version": info.Version,
 	}
-	if gitCommit != "" {
-		shimEntry["Details"] = map[string]any{"GitCommit": gitCommit}
+	if info.Commit != "" {
+		shimEntry["Details"] = map[string]any{"GitCommit": info.Commit}
 	}
 	switch comps := v["Components"].(type) {
 	case []any:

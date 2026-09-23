@@ -55,7 +55,7 @@ DOCKER_HOST=unix:///run/docker-pull-shim.sock   # (auto-detected at startup)
 
 | File | Responsibility |
 |------|---------------|
-| `main.go` | Unix socket listener, `handleConn` (HTTP/1.1 loop, 101 hijack passthrough), `isKeepAlive`, `-log-level` flag |
+| `main.go` | Unix socket listener, `handleConn` (HTTP/1.1 loop, 101 hijack passthrough), `isKeepAlive`, `-log-level`/`-version` flags |
 | `config.go` | `Config` with `Listen`/`Upstream` pointer fields, `loadConfig`, `chooseUpstream`, `chooseListen`, `xdgRuntimeDir`, `socketPath` |
 | `image.go` | `normalizeImage` — ensures fully-qualified image reference |
 | `pull.go` | `prePull` (skopeo + `POST /images/load` via custom transport), `loadImageAPI` |
@@ -107,9 +107,10 @@ Uses `log/slog` (text handler to stderr). Default level is `info`.
 
 ```
 -log-level debug|info|warn|error
+-version   # print version (go-faster/sdk cliversion) and exit
 ```
 
-Key log points: upstream/listen socket chosen (Info), intercepted pull (Info), skopeo start/finish (Info), no mirror (Debug), per-request path (Debug).
+Key log points: version at startup (Info), upstream/listen socket chosen (Info), intercepted pull (Info), skopeo start/finish (Info), no mirror (Debug), per-request path (Debug).
 
 ### Deployment
 

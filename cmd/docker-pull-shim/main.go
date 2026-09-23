@@ -17,7 +17,14 @@ import (
 
 func main() {
 	logLevelFlag := flag.String("log-level", "info", "log level: debug, info, warn, error")
+	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	info := buildInfo()
+	if *versionFlag {
+		fmt.Println("docker-pull-shim", info)
+		return
+	}
 
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(*logLevelFlag)); err != nil {
@@ -26,6 +33,7 @@ func main() {
 	}
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	slog.SetDefault(slog.New(handler).With("component", "proxy"))
+	slog.Info("starting", "version", info.Version, "commit", info.Commit, "modified", info.Modified, "go", info.GoVersion)
 
 	cfg, err := loadConfig()
 	if err != nil {
