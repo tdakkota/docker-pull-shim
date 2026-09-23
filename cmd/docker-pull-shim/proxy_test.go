@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -415,4 +416,53 @@ type zeroReader struct{}
 func (zeroReader) Read(p []byte) (int, error) {
 	clear(p)
 	return len(p), nil
+}
+
+func TestHandleConn_EarlyResponseHTTPClient(t *testing.T) {
+	dir, err := os.MkdirTemp("", "shim")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	upSock, shimSock := dir+"/up.sock", dir+"/shim.sock"
+
+	upLn, err := net.Listen("unix", upSock)
+	require.NoError(t, err)
+	upstream := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "No such container: oteldb-1", http.StatusNotFound)
+	})}
+	go func() { _ = upstream.Serve(upLn) }()
+	t.Cleanup(func() { _ = upstream.Close() })
+
+	shimLn, err := net.Listen("unix", shimSock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shimLn.Close() })
+	go func() {
+		for {
+			c, err := shimLn.Accept()
+			if err != nil {
+				return
+			}
+			go handleConn(c, Config{}, "", func() (net.Conn, error) { return net.Dial("unix", upSock) })
+		}
+	}()
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", shimSock)
+		},
+	}}
+	for range 100 {
+		pr, pw := io.Pipe()
+		go func() {
+			_, err := io.CopyBuffer(pw, io.LimitReader(zeroReader{}, 42<<20), make([]byte, 32<<10))
+			pw.CloseWithError(err)
+		}()
+		body := pr
+		req, err := http.NewRequest(http.MethodPut, "http://docker/v1.56/containers/oteldb-1/archive?path=/tmp", body)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	}
 }

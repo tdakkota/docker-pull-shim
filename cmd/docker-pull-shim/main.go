@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -167,14 +168,32 @@ func handleConn(clientConn net.Conn, cfg Config, upstreamSocket string, dialUpst
 
 		writeErr := resp.Write(clientConn)
 		_ = resp.Body.Close()
-		if writeErr != nil || !isKeepAlive(req, resp) {
+		if writeErr != nil {
 			return
 		}
-		if err := <-writeErrc; err != nil {
+		if isKeepAlive(req, resp) {
+			err := <-writeErrc
+			if err == nil {
+				continue
+			}
 			slog.Info("write to upstream", "err", err)
-			return
 		}
+		lingerClose(clientConn, clientBuf, upConn, writeErrc)
+		return
 	}
+}
+
+const lingerTimeout = 5 * time.Second
+
+// lingerClose mirrors net/http's closeWriteAndWait. The client may still be sending
+// a request body the upstream refused to read. Closing right away fails its writes,
+// and it may report that error instead of the response it was already sent.
+func lingerClose(clientConn net.Conn, clientBuf io.Reader, upConn net.Conn, writeErrc <-chan error) {
+	halfClose(clientConn)
+	_ = clientConn.SetReadDeadline(time.Now().Add(lingerTimeout))
+	_ = upConn.Close()
+	<-writeErrc
+	_, _ = io.Copy(io.Discard, clientBuf)
 }
 
 // closeWriter is implemented by *net.TCPConn and *net.UnixConn.
