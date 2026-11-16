@@ -3,7 +3,7 @@ module github.com/tdakkota/docker-pull-shim
 go 1.26.1
 
 require (
-	github.com/go-faster/sdk v0.39.1
+	github.com/go-faster/sdk v0.40.0
 	github.com/go-faster/yaml v0.4.6
 	github.com/stretchr/testify v1.12.1
 )
